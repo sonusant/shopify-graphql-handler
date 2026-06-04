@@ -66,25 +66,42 @@ def paginate(
         # Merge cursor into variables for this request.
         request_vars = _inject_cursor(base_vars, cursor)
         raw_response = client._post({"query": query, "variables": request_vars})
-        normalized = normalize_response(raw_response)
-        # If the request failed, raise the contained error so callers can
-        # handle it.
-        if not normalized["success"]:
-            raise RuntimeError(f"Pagination request failed: {normalized['errors']}")
-        data = normalized["data"]
+        # Raise on top-level GraphQL errors
+        if raw_response.get("errors"):
+            raise RuntimeError(f"Pagination request failed: {raw_response['errors']}")
+        data = raw_response.get("data", {})
         # The GraphQL response shape is not known upfront – we look for the
         # first dict that contains ``edges`` or ``nodes``.
         def _extract_collection(container: Any) -> List[Any]:
+            # Handle dicts that contain `edges` or `nodes`.
             if isinstance(container, dict):
-                if "edges" in container:
-                    return [edge.get("node") for edge in container["edges"]]
-                if "nodes" in container:
+                if "edges" in container and isinstance(container["edges"], list):
+                    items = []
+                    for edge in container["edges"]:
+                        # edge may be a dict with 'node'
+                        if isinstance(edge, dict) and "node" in edge:
+                            items.append(edge.get("node"))
+                        else:
+                            items.append(edge)
+                    return items
+                if "nodes" in container and isinstance(container["nodes"], list):
                     return container["nodes"]
                 # Recurse into values to find a nested collection.
                 for v in container.values():
                     result = _extract_collection(v)
                     if result:
                         return result
+                return []
+            # If the container is already a list of nodes, return it.
+            if isinstance(container, list):
+                # Normalize any edges present in list items
+                items = []
+                for item in container:
+                    if isinstance(item, dict) and "node" in item:
+                        items.append(item.get("node"))
+                    else:
+                        items.append(item)
+                return items
             return []
 
         page_items = _extract_collection(data)
@@ -93,7 +110,7 @@ def paginate(
         # Find pagination info – look for a dict with ``pageInfo``.
         def _find_page_info(obj: Any) -> Optional[Dict[str, Any]]:
             if isinstance(obj, dict):
-                if "pageInfo" in obj:
+                if "pageInfo" in obj and isinstance(obj["pageInfo"], dict):
                     return obj["pageInfo"]
                 for v in obj.values():
                     info = _find_page_info(v)

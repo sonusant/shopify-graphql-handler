@@ -31,7 +31,7 @@ class ShopifyClient:
         self,
         shop_name: str,
         access_token: str,
-        api_version: str = f"{datetime.datetime.now().year}-10",
+        api_version: str = f"{datetime.datetime.now().year}-01",
         max_retries: int = 3,
         backoff_factor: float = 1.0,
         timeout: float = 15.0,

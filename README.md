@@ -38,37 +38,24 @@ shopify_graphql/
 
 ---
 
-## Installation
-
-```bash
-# Inside the repository root
-python -m pip install .
-```
-
-For development:
-
-```bash
-python -m pip install -e .
-```
-
----
-
 ## Quick Start
 
 ```python
 from shopify_graphql import ShopifyClient, QueryEngine, MutationEngine
 
-# Initialise the client with a private‑app token
+# Initialise the client with a private‑app token. Pin `api_version` to a
+# supported release to avoid 404s (e.g. "2025-01" or "2024-10").
 client = ShopifyClient(
     shop_name="myshop",
     access_token="shpat_XXXXXXXXXXXXXXXX",
+    api_version="2025-01",
 )
 
 # Compose engines
 query_engine = QueryEngine(client)
 mutation_engine = MutationEngine(client)
 
-# Auto‑paginated query – fetch all products
+# Auto‑paginated query – fetch all products (returns a flattened list)
 query = """
 query ($first: Int, $after: String) {
   products(first: $first, after: $after) {
@@ -78,6 +65,7 @@ query ($first: Int, $after: String) {
 }
 """
 
+# Use `auto_paginate=True` to fetch all pages and receive a flat list of nodes
 products = query_engine.query(query, variables={"first": 250}, auto_paginate=True)
 print(f"Fetched {len(products)} products")
 
@@ -89,6 +77,13 @@ result = mutation_engine.mutate(
 print(result)
 ```
 
+Quick notes:
+- `QueryEngine.query(..., auto_paginate=False)` performs a single request and returns the normalized `data` dict (e.g. `{"products": [...]}`); access the list via `result["products"]`.
+- `QueryEngine.query(..., auto_paginate=True)` returns a flattened `list` of nodes from all pages.
+- To force pagination during testing, set a small `first` (e.g. 2) and include `pageInfo { hasNextPage endCursor }` in your selection.
+- Ensure the access token has the **Admin GraphQL** scope required for the resources you query.
+```
+
 ---
 
 ## Detailed Usage
@@ -96,6 +91,9 @@ print(result)
 ### `ShopifyClient`
 - **Parameters**: `shop_name`, `access_token`, optional `api_version`, `max_retries` (default 3), `backoff_factor` (default 1.0), `timeout`.
 - Handles HTTP 429 with exponential back‑off and raises `RateLimitError`.
+
+Recommendation:
+- Pin the `api_version` when creating `ShopifyClient` (for example `api_version="2024-10"`) rather than relying on a dynamic default. Using an unsupported or future API version can result in HTTP 404s; explicitly setting a known supported release avoids this class of error.
 
 ### `QueryEngine.query`
 - `query`: GraphQL query string.
